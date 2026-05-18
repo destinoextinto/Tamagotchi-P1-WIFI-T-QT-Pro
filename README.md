@@ -19,6 +19,20 @@ The T-QT Pro firmware lives in `firmware/esp8266-tamagotchi` and adds:
 - WiFi monitor portal.
 - NTP time sync, including timezone capture from the browser that opens the portal.
 - Read-only web monitor with LCD view and browser-side alert sound.
+- Remote community care mode: a web room with turns, a waitlist, browser sound, and authorized remote button control.
+
+## Tama Care Room
+
+This fork includes two ways to run a shared web room for a physical T-QT Tamagotchi:
+
+- `remote-care-php/`: PHP version for shared hosting such as IONOS. This is the easiest way to host a public room on a normal domain.
+- `remote-care/`: Node.js version for local networks, VPS deployments, or future WebSocket/MQTT experiments.
+
+The room lets multiple people watch the physical Tamagotchi while only one keeper has control at a time. Other users enter a waitlist, and the current keeper can end their turn so the next person receives the controls.
+
+Live room used during development: [http://tama.destinoextinto.com/](http://tama.destinoextinto.com/)
+
+Before deploying your own room, change the shared token in `remote-care-php/config.php` and use the same value in the `TQT_REMOTE_TOKEN` firmware build flag. Do not publish a real production token.
 
 See [firmware/esp8266-tamagotchi/README_T_QT_PRO.md](firmware/esp8266-tamagotchi/README_T_QT_PRO.md) for build, upload, WiFi, and usage notes.
 

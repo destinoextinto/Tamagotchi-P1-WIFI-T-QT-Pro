@@ -27,6 +27,9 @@
 #include <Preferences.h>
 #include <ESPmDNS.h>
 #include <time.h>
+#ifdef T_QT_REMOTE_CARE
+#include <HTTPClient.h>
+#endif
 #endif
 #else
 #include <U8g2lib.h>
@@ -164,6 +167,11 @@ static uint16_t current_freq = 0;
 static volatile bool tqtMonitorSoundPlaying = false;
 static volatile uint32_t tqtMonitorSoundFrequency = 0;
 static volatile uint32_t tqtMonitorLastSoundMs = 0;
+static volatile uint32_t tqtMonitorSoundEvent = 0;
+#endif
+#if defined(T_QT_PRO) && defined(T_QT_REMOTE_CARE)
+static uint8_t tqtRemoteButtonMask = 0;
+static uint32_t tqtRemoteButtonReleaseAt[3] = {0, 0, 0};
 #endif
 static bool_t matrix_buffer[LCD_HEIGHT][LCD_WIDTH / 8] = {{0}};
 //static byte runOnceBool = 0;
@@ -251,6 +259,10 @@ static void hal_set_frequency(u32_t freq)
 static void hal_play_frequency(bool_t en)
 {
 #if defined(T_QT_PRO) && defined(T_QT_WIFI_MONITOR)
+  if (en && !tqtMonitorSoundPlaying)
+  {
+    tqtMonitorSoundEvent++;
+  }
   tqtMonitorSoundPlaying = en;
   tqtMonitorLastSoundMs = millis();
 #endif
@@ -268,6 +280,36 @@ static void hal_play_frequency(bool_t en)
   }
 #endif
 }
+
+#if defined(T_QT_PRO) && defined(T_QT_REMOTE_CARE)
+static void queueTqtRemoteButton(char buttonCode)
+{
+  uint8_t index = 0;
+  if (buttonCode == 'L')
+    index = 0;
+  else if (buttonCode == 'M')
+    index = 1;
+  else if (buttonCode == 'R')
+    index = 2;
+  else
+    return;
+
+  const uint32_t nowMs = millis();
+  tqtRemoteButtonMask |= (1 << index);
+  tqtRemoteButtonReleaseAt[index] = nowMs + 140;
+}
+
+static void updateTqtRemoteButtons(uint32_t nowMs)
+{
+  for (uint8_t i = 0; i < 3; i++)
+  {
+    if ((tqtRemoteButtonMask & (1 << i)) && (int32_t)(nowMs - tqtRemoteButtonReleaseAt[i]) >= 0)
+    {
+      tqtRemoteButtonMask &= ~(1 << i);
+    }
+  }
+}
+#endif
 
 static int hal_handler(void)
 {
@@ -331,9 +373,19 @@ static int hal_handler(void)
     reportedButtons = 0;
   }
 
-  hw_set_button(BTN_LEFT, reportedButtons == 0x01 ? BTN_STATE_PRESSED : BTN_STATE_RELEASED);
-  hw_set_button(BTN_MIDDLE, reportedButtons == 0x02 ? BTN_STATE_PRESSED : BTN_STATE_RELEASED);
-  hw_set_button(BTN_RIGHT, reportedButtons == 0x03 ? BTN_STATE_PRESSED : BTN_STATE_RELEASED);
+  bool leftPressed = reportedButtons == 0x01;
+  bool middlePressed = reportedButtons == 0x02;
+  bool rightPressed = reportedButtons == 0x03;
+#if defined(T_QT_REMOTE_CARE)
+  updateTqtRemoteButtons(now);
+  leftPressed = leftPressed || (tqtRemoteButtonMask & 0x01);
+  middlePressed = middlePressed || (tqtRemoteButtonMask & 0x02);
+  rightPressed = rightPressed || (tqtRemoteButtonMask & 0x04);
+#endif
+
+  hw_set_button(BTN_LEFT, leftPressed ? BTN_STATE_PRESSED : BTN_STATE_RELEASED);
+  hw_set_button(BTN_MIDDLE, middlePressed ? BTN_STATE_PRESSED : BTN_STATE_RELEASED);
+  hw_set_button(BTN_RIGHT, rightPressed ? BTN_STATE_PRESSED : BTN_STATE_RELEASED);
 #else
   if (digitalRead(PIN_BTN_L) == HIGH)
   {
@@ -417,6 +469,32 @@ static hal_t hal = {
 #define TQT_NTP_CHECK_INTERVAL_MS 60000
 #endif
 
+#if defined(T_QT_REMOTE_CARE)
+#ifndef TQT_REMOTE_URL
+#define TQT_REMOTE_URL ""
+#endif
+
+#ifndef TQT_REMOTE_TOKEN
+#define TQT_REMOTE_TOKEN ""
+#endif
+
+#ifndef TQT_REMOTE_STATE_INTERVAL_MS
+#define TQT_REMOTE_STATE_INTERVAL_MS 500
+#endif
+
+#ifndef TQT_REMOTE_POLL_INTERVAL_MS
+#define TQT_REMOTE_POLL_INTERVAL_MS 35
+#endif
+
+#ifndef TQT_REMOTE_HTTP_TIMEOUT_MS
+#define TQT_REMOTE_HTTP_TIMEOUT_MS 220
+#endif
+
+#ifndef TQT_REMOTE_RETRY_INTERVAL_MS
+#define TQT_REMOTE_RETRY_INTERVAL_MS 3000
+#endif
+#endif
+
 static WebServer tqtWebServer(80);
 static Preferences tqtWifiPrefs;
 static String tqtWifiSsid;
@@ -431,6 +509,9 @@ static uint32_t tqtLastClockSyncMs = 0;
 static uint32_t tqtLastClockAttemptMs = 0;
 static bool tqtRestartPending = false;
 static uint32_t tqtRestartAtMs = 0;
+#if defined(T_QT_REMOTE_CARE)
+static bool tqtRemoteCareTaskStarted = false;
+#endif
 
 static const char TQT_MONITOR_HTML[] PROGMEM = R"rawliteral(
 <!doctype html>
@@ -483,24 +564,40 @@ button:hover{border-color:#687182}.row{display:flex;gap:8px;flex-wrap:wrap}.row>
     <form method="post" action="/wifi/clear" onsubmit="return confirm('Borrar red guardada?')">
       <button type="submit">Borrar red guardada</button>
     </form>
-    <p class="small">El monitor no envia botones al Tamagotchi; solo muestra pantalla, estado y alerta sonora en este navegador.</p>
+    <p class="small">El monitor no envia botones al Tamagotchi; solo muestra pantalla, estado y sonidos del Tama en este navegador.</p>
   </section>
 </main>
 <script>
 const lcd=document.getElementById('lcd');
 const c=lcd.getContext('2d');
 const iconNames=['FOOD','LIGHT','GAME','MED','WC','STAT','DISC','ATTN'];
-let audioEnabled=false, audioCtx=null, osc=null, gain=null;
+const audioButton=document.getElementById('audio');
+let audioEnabled=false, audioCtx=null, osc=null, gain=null, beepTimer=null, lastSoundEvent=null;
 let sentTimezone=false;
-document.getElementById('audio').addEventListener('click',async()=>{
+audioButton.addEventListener('click',async()=>{
+  if(audioEnabled){
+    audioEnabled=false;
+    stopTone();
+    audioButton.textContent='Activar sonido';
+    return;
+  }
   audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
   await audioCtx.resume();
   audioEnabled=true;
-  document.getElementById('audio').textContent='Sonido activo';
+  audioButton.textContent='Desactivar sonido';
 });
-function setAlarm(on,freq){
+function stopTone(){
+  if(beepTimer){clearTimeout(beepTimer);beepTimer=null;}
+  if(osc){
+    osc.stop();
+    osc.disconnect();
+    gain.disconnect();
+    osc=null;gain=null;
+  }
+}
+function startTone(freq){
   if(!audioEnabled||!audioCtx)return;
-  if(on&& !osc){
+  if(!osc){
     osc=audioCtx.createOscillator();
     gain=audioCtx.createGain();
     osc.type='square';
@@ -508,14 +605,27 @@ function setAlarm(on,freq){
     gain.gain.value=0.04;
     osc.connect(gain).connect(audioCtx.destination);
     osc.start();
-  }else if(on&&osc){
+  }else{
     osc.frequency.value=freq||880;
-  }else if(!on&&osc){
-    osc.stop();
-    osc.disconnect();
-    gain.disconnect();
-    osc=null;gain=null;
   }
+}
+function playBeep(freq){
+  stopTone();
+  startTone(freq);
+  beepTimer=setTimeout(()=>{beepTimer=null;stopTone();},90);
+}
+function setTamaSound(sound){
+  if(!audioEnabled||!audioCtx){stopTone();return;}
+  const event=Number(sound.event||0);
+  const freq=Number(sound.frequency||880);
+  if(lastSoundEvent===null)lastSoundEvent=event;
+  if(event!==lastSoundEvent){
+    lastSoundEvent=event;
+    playBeep(freq);
+    return;
+  }
+  if(sound.playing)startTone(freq);
+  else if(!beepTimer)stopTone();
 }
 function rowBit(hex,x){
   const b=parseInt(hex.slice((x>>3)*2,(x>>3)*2+2),16);
@@ -524,7 +634,7 @@ function rowBit(hex,x){
 function draw(s){
   c.fillStyle='#000';c.fillRect(0,0,256,256);
   const scale=8, ox=0, oy=56;
-  c.fillStyle=s.screen.color||'#fff';
+  c.fillStyle=s.color||'#fff';
   for(let y=0;y<s.height;y++){
     for(let x=0;x<s.width;x++){
       if(rowBit(s.rows[y],x)) c.fillRect(ox+x*scale,oy+y*scale,scale,scale);
@@ -559,11 +669,11 @@ async function tick(){
     document.getElementById('tamaTime').textContent=s.tama_time;
     document.getElementById('ntp').innerHTML=s.ntp.synced?'<span class="ok">'+s.ntp.local+'</span>':'<span class="warn">sin sincronizar</span>';
     document.getElementById('tz').textContent=s.ntp.zone||'local';
-    setAlarm(s.alert,s.sound.frequency);
+    setTamaSound(s.sound);
   }catch(e){
-    setAlarm(false,0);
+    stopTone();
   }
-  setTimeout(tick,1000);
+  setTimeout(tick,150);
 }
 tick();
 </script>
@@ -753,10 +863,11 @@ static uint16_t getIconMask()
 
 static void handleTqtRoot()
 {
+  tqtWebServer.sendHeader("Cache-Control", "no-store");
   tqtWebServer.send_P(200, "text/html", TQT_MONITOR_HTML);
 }
 
-static void handleTqtState()
+static String buildTqtStateJson()
 {
   String localTime;
   bool ntpReady = getLocalTimeString(localTime);
@@ -792,6 +903,8 @@ static void handleTqtState()
   json += tqtMonitorSoundPlaying ? F("true") : F("false");
   json += F(",\"frequency\":");
   json += (uint32_t)(tqtMonitorSoundFrequency ? tqtMonitorSoundFrequency : current_freq);
+  json += F(",\"event\":");
+  json += (uint32_t)tqtMonitorSoundEvent;
   json += F("},\"alert\":");
   json += (attention || recentSound) ? F("true") : F("false");
   json += F(",\"screen\":{\"width\":");
@@ -811,8 +924,138 @@ static void handleTqtState()
   json += nowMs;
   json += '}';
 
+  return json;
+}
+
+static void handleTqtState()
+{
+  String json = buildTqtStateJson();
   tqtWebServer.send(200, "application/json", json);
 }
+
+#if defined(T_QT_REMOTE_CARE)
+static void handleTqtRemoteCareResponse(const String &response)
+{
+  const char key[] = "\"commands\":\"";
+  int start = response.indexOf(key);
+  if (start < 0)
+    return;
+  start += strlen(key);
+  int end = response.indexOf('"', start);
+  if (end < 0)
+    return;
+
+  for (int i = start; i < end; i++)
+  {
+    queueTqtRemoteButton(response.charAt(i));
+  }
+}
+
+static String buildTqtRemoteActionUrl(const char *action)
+{
+  String url = TQT_REMOTE_URL;
+  url += strchr(TQT_REMOTE_URL, '?') ? '&' : '?';
+  url += F("action=");
+  url += action;
+  return url;
+}
+
+static bool postTqtRemoteState()
+{
+  HTTPClient http;
+  http.setTimeout(TQT_REMOTE_HTTP_TIMEOUT_MS);
+  if (!http.begin(TQT_REMOTE_URL))
+  {
+    return false;
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Tama-Token", TQT_REMOTE_TOKEN);
+  int status = http.POST(buildTqtStateJson());
+  bool ok = false;
+  if (status > 0)
+  {
+    String response = http.getString();
+    if (status == HTTP_CODE_OK)
+    {
+      handleTqtRemoteCareResponse(response);
+      ok = true;
+    }
+  }
+  http.end();
+  return ok;
+}
+
+static bool pollTqtRemoteCommands()
+{
+  HTTPClient http;
+  http.setTimeout(TQT_REMOTE_HTTP_TIMEOUT_MS);
+  String url = buildTqtRemoteActionUrl("poll");
+  if (!http.begin(url))
+  {
+    return false;
+  }
+
+  http.addHeader("X-Tama-Token", TQT_REMOTE_TOKEN);
+  int status = http.GET();
+  bool ok = false;
+  if (status > 0)
+  {
+    String response = http.getString();
+    if (status == HTTP_CODE_OK)
+    {
+      handleTqtRemoteCareResponse(response);
+      ok = true;
+    }
+  }
+  http.end();
+  return ok;
+}
+
+static void tqtRemoteCareTask(void *parameter)
+{
+  (void)parameter;
+  uint32_t nextStateMs = 0;
+  uint32_t nextPollMs = 0;
+
+  for (;;)
+  {
+    uint32_t nowMs = millis();
+    if (WiFi.status() != WL_CONNECTED || strlen(TQT_REMOTE_URL) == 0)
+    {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+
+    bool didWork = false;
+    if ((int32_t)(nowMs - nextPollMs) >= 0)
+    {
+      bool ok = pollTqtRemoteCommands();
+      nextPollMs = millis() + (ok ? TQT_REMOTE_POLL_INTERVAL_MS : TQT_REMOTE_RETRY_INTERVAL_MS);
+      didWork = true;
+    }
+
+    nowMs = millis();
+    if ((int32_t)(nowMs - nextStateMs) >= 0)
+    {
+      bool ok = postTqtRemoteState();
+      nextStateMs = millis() + (ok ? TQT_REMOTE_STATE_INTERVAL_MS : TQT_REMOTE_RETRY_INTERVAL_MS);
+      didWork = true;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(didWork ? 10 : 25));
+  }
+}
+
+static void startTqtRemoteCareTask()
+{
+  if (tqtRemoteCareTaskStarted || strlen(TQT_REMOTE_URL) == 0)
+    return;
+
+  tqtRemoteCareTaskStarted = true;
+  xTaskCreate(tqtRemoteCareTask, "tqt_remote", 8192, nullptr, 1, nullptr);
+}
+#endif
 
 static void scheduleTqtRestart()
 {
@@ -1386,6 +1629,9 @@ void setup()
 #if defined(T_QT_PRO) && defined(T_QT_WIFI_MONITOR)
   startTqtWifiMonitor();
   syncTamaClockFromNtp(true);
+#endif
+#if defined(T_QT_PRO) && defined(T_QT_WIFI_MONITOR) && defined(T_QT_REMOTE_CARE)
+  startTqtRemoteCareTask();
 #endif
   Serial.println(F("Tamagotchi initialized."));
 }

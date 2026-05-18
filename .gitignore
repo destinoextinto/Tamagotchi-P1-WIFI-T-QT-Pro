@@ -7,5 +7,7 @@ backups/
 *.bin
 *.elf
 *.map
+*.zip
+remote-care-php/data/state.json
 rom
 .DS_Store

@@ -66,3 +66,38 @@ Desde esa pagina puedes guardar el SSID y password de tu WiFi. Al reiniciar, si 
 - o la IP que imprime por serial al arrancar.
 
 La zona horaria por defecto es Mexico City sin horario de verano (`CST6`). Al abrir la pagina del monitor, el navegador envia automaticamente su zona/offset actual al T-QT para ajustar la hora local. Si viajas, abre el monitor desde un dispositivo configurado en la zona correcta y el T-QT actualiza ese dato.
+
+## Tama Care Room / cuidado comunitario
+
+El firmware tambien puede publicar estado a un servidor externo y recibir botones autorizados para un Tamagotchi comunitario fisico.
+
+La version PHP para hosting compartido esta en:
+
+```text
+remote-care-php/
+```
+
+La version Node.js para red local, VPS o pruebas esta en:
+
+```text
+remote-care/
+```
+
+Para activar el cliente remoto en el firmware:
+
+```ini
+-D T_QT_REMOTE_CARE
+-D TQT_REMOTE_URL=\"http://tu-dominio.example/api.php\"
+-D TQT_REMOTE_TOKEN=\"tu-token-secreto\"
+```
+
+`TQT_REMOTE_TOKEN` debe coincidir con `tama_shared_secret` en `remote-care-php/config.php`. No publiques un token real de produccion en GitHub.
+
+El portal comunitario maneja:
+
+- turno activo
+- lista de espera
+- boton para terminar turno
+- controles remotos izquierda / OK / derecha
+- pantalla y sonido remotos
+- ocultamiento del SSID en el estado publico
