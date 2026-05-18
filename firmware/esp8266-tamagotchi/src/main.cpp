@@ -71,6 +71,55 @@ static const uint8_t TQT_ICON_Y = 108;
 static const uint16_t TQT_TAMA_FG = TFT_WHITE;
 static const uint16_t TQT_TAMA_BG = TFT_BLACK;
 
+static uint16_t tqtColor565(uint8_t r, uint8_t g, uint8_t b)
+{
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+static uint32_t getTamaRgb888()
+{
+  switch (cpu_read_memory_nibble(0x05D))
+  {
+  case 0x01: // Babytchi
+    return 0xF4F4F4;
+  case 0x02: // Marutchi
+    return 0xFFE12B;
+  case 0x03: // Tamatchi
+    return 0xF062A7;
+  case 0x04: // Kuchitamatchi
+    return 0xFFB21F;
+  case 0x05: // Mametchi
+    return 0xFFE633;
+  case 0x06: // Ginjirotchi
+    return 0x25B6E8;
+  case 0x07: // Maskutchi
+    return 0x8B78C8;
+  case 0x08: // Kuchipatchi
+    return 0x75B843;
+  case 0x09: // Nyorotchi
+    return 0x63C7E8;
+  case 0x0A: // Tarakotchi
+    return 0xEED99B;
+  case 0x0B: // Bill / Oyajitchi depending on ROM version
+    return 0xF1B6A8;
+  default:
+    return 0xFFFFFF;
+  }
+}
+
+static uint16_t getTamaTftColor()
+{
+  uint32_t color = getTamaRgb888();
+  return tqtColor565((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
+}
+
+static void appendTamaColorHex(String &value)
+{
+  char colorHex[8];
+  snprintf(colorHex, sizeof(colorHex), "#%06lX", (unsigned long)getTamaRgb888());
+  value += colorHex;
+}
+
 void clearTqtPanelMemory()
 {
   for (uint8_t rotation = 0; rotation < 4; rotation++)
@@ -475,7 +524,7 @@ function rowBit(hex,x){
 function draw(s){
   c.fillStyle='#000';c.fillRect(0,0,256,256);
   const scale=8, ox=0, oy=56;
-  c.fillStyle='#fff';
+  c.fillStyle=s.screen.color||'#fff';
   for(let y=0;y<s.height;y++){
     for(let x=0;x<s.width;x++){
       if(rowBit(s.rows[y],x)) c.fillRect(ox+x*scale,oy+y*scale,scale,scale);
@@ -749,6 +798,11 @@ static void handleTqtState()
   json += LCD_WIDTH;
   json += F(",\"height\":");
   json += LCD_HEIGHT;
+  json += F(",\"character\":");
+  json += cpu_read_memory_nibble(0x05D);
+  json += F(",\"color\":\"");
+  appendTamaColorHex(json);
+  json += '"';
   json += ',';
   appendMatrixRows(json);
   json += F(",\"icons\":");
@@ -970,6 +1024,7 @@ void drawTamaRow(uint8_t tamaLCD_y, uint8_t ActualLCD_y, uint8_t thick)
   (void)ActualLCD_y;
   (void)thick;
 
+  uint16_t tamaColor = getTamaTftColor();
   for (uint8_t i = 0; i < LCD_WIDTH; i++)
   {
     uint8_t mask = 0b10000000 >> (i % 8);
@@ -980,7 +1035,7 @@ void drawTamaRow(uint8_t tamaLCD_y, uint8_t ActualLCD_y, uint8_t thick)
           TQT_TAMA_Y + tamaLCD_y * TQT_TAMA_SCALE,
           TQT_TAMA_SCALE,
           TQT_TAMA_SCALE,
-          TQT_TAMA_FG);
+          tamaColor);
     }
   }
 }
@@ -1019,10 +1074,14 @@ void displayTama()
   static bool_t renderedIcons[ICON_NUM];
   static bool rendererStarted = false;
   static uint8_t scrubStep = 0;
+  static uint16_t renderedTamaColor = TQT_TAMA_FG;
+  uint16_t tamaColor = getTamaTftColor();
+  bool colorChanged = rendererStarted && renderedTamaColor != tamaColor;
 
-  if (!rendererStarted)
+  if (!rendererStarted || colorChanged)
   {
-    display.fillScreen(TQT_TAMA_BG);
+    if (!rendererStarted)
+      display.fillScreen(TQT_TAMA_BG);
     for (uint8_t y = 0; y < LCD_HEIGHT; y++)
     {
       for (uint8_t x = 0; x < LCD_WIDTH / 8; x++)
@@ -1034,6 +1093,7 @@ void displayTama()
     {
       renderedIcons[i] = !icon_buffer[i];
     }
+    renderedTamaColor = tamaColor;
   }
 
   bool flooded = tamaLcdLooksFlooded();
@@ -1061,7 +1121,7 @@ void displayTama()
               TQT_TAMA_Y + y * TQT_TAMA_SCALE,
               TQT_TAMA_SCALE,
               TQT_TAMA_SCALE,
-              currentOn ? TQT_TAMA_FG : TQT_TAMA_BG);
+              currentOn ? tamaColor : TQT_TAMA_BG);
         }
       }
 
@@ -1086,7 +1146,7 @@ void displayTama()
               TQT_TAMA_Y + y * TQT_TAMA_SCALE,
               TQT_TAMA_SCALE,
               TQT_TAMA_SCALE,
-              currentOn ? TQT_TAMA_FG : TQT_TAMA_BG);
+              currentOn ? tamaColor : TQT_TAMA_BG);
         }
         renderedMatrix[y][xByte] = currentByte;
       }

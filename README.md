@@ -15,6 +15,7 @@ The T-QT Pro firmware lives in `firmware/esp8266-tamagotchi` and adds:
 - Two-button controls mapped to the original three Tamagotchi buttons.
 - Incremental TFT rendering to reduce flicker.
 - Display memory clearing/scrubbing for the random colored pixel artifacts seen after some power transitions.
+- Character color palettes based on the P1 growth chart.
 - WiFi monitor portal.
 - NTP time sync, including timezone capture from the browser that opens the portal.
 - Read-only web monitor with LCD view and browser-side alert sound.

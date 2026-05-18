@@ -48,6 +48,7 @@ El Tamagotchi original usa tres botones, pero el T-QT Pro trae dos:
 El build del T-QT Pro incluye un monitor web de solo lectura:
 
 - Muestra la pantalla LCD emulada y los iconos activos.
+- Aplica color base a cada personaje segun su sprite del growth chart.
 - Reproduce alertas en el navegador cuando el Tamagotchi activa sonido o atencion.
 - Sincroniza la hora interna del Tamagotchi por NTP cuando esta conectado a WiFi.
 - Toma la zona horaria del navegador o telefono que abre el portal y la guarda en la placa.
