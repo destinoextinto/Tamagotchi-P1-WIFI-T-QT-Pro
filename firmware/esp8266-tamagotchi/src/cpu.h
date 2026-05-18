@@ -137,6 +137,8 @@ void cpu_free_bp(breakpoint_t **list);
 
 void cpu_get_state(cpu_state_t *cpustate);
 void cpu_set_state(cpu_state_t *cpustate);
+u4_t cpu_read_memory_nibble(u12_t addr);
+void cpu_write_memory_nibble(u12_t addr, u4_t value);
 
 u32_t cpu_get_depth(void);
 

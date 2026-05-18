@@ -27,7 +27,9 @@
 #include "hal.h"
 #include "rom_12bit.h"
 
+#ifndef CPU_SPEED_RATIO
 #define CPU_SPEED_RATIO      0
+#endif
 #define TICK_FREQUENCY        32768 // Hz
 
 #define TIMER_1HZ_PERIOD      32768 // in ticks
@@ -707,6 +709,16 @@ static void set_memory(u12_t n, u4_t v)
     return;
   }
   //g_hal->log(LOG_MEMORY, "Write 0x%X - Address 0x%03X - PC = 0x%04X\n", v, n, pc);
+}
+
+u4_t cpu_read_memory_nibble(u12_t addr)
+{
+  return get_memory(addr);
+}
+
+void cpu_write_memory_nibble(u12_t addr, u4_t value)
+{
+  set_memory(addr, value & 0x0F);
 }
 /*
 void cpu_refresh_hw(void)
@@ -1665,7 +1677,7 @@ static const op_t0 ops0[] PROGMEM = {
   {0xF38, MASK_10B      , 7 }, // SCPX
   {0xF3C, MASK_10B      , 7 }, // SCPY
   {0xD0F, 0xFCF         , 7 }, // NOT
-  {NULL, 0, 0, 0, NULL},
+  {0, 0, 0},
 };
 
 /* The E0C6S46 supported instructions */
@@ -1795,19 +1807,17 @@ u12_t getMaskArg0(u12_t shiftArg, u12_t mask) {
 }
 
 static timestamp_t wait_for_cycles(timestamp_t since, u8_t cycles) {
-  timestamp_t deadline;
-
   tick_counter += cycles;
 
-  if (CPU_SPEED_RATIO == 0) {
+#if CPU_SPEED_RATIO == 0
     /* Emulation will be as fast as possible */
     return g_hal->get_timestamp();
-  }
-
-  deadline = since + (cycles * ts_freq)/(TICK_FREQUENCY * CPU_SPEED_RATIO);
+#else
+  timestamp_t deadline = since + (cycles * ts_freq)/(TICK_FREQUENCY * CPU_SPEED_RATIO);
   g_hal->sleep_until(deadline);
 
   return deadline;
+#endif
 }
 
 static void process_interrupts(void)

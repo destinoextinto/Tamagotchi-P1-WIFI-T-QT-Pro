@@ -1,8 +1,25 @@
-# ArduinoGotchi - A real Tamagotchi emulator for Arduino UNO
+# ArduinoGotchi for LilyGo T-QT Pro
 
 ## Synopsis
 
-**ArduinoGotchi** is a real [Tamagotchi P1](https://tamagotchi.fandom.com/wiki/Tamagotchi_(1996_Pet)) emulator running in Arduino UNO hardware. The emulation core is based on [TamaLib](https://github.com/jcrona/tamalib) with intensive optimization to make it fit into UNO's hardware that only comes with 32K Flash 2K RAM.
+This is a LilyGo T-QT Pro ESP32-S3 port of **ArduinoGotchi**, a real [Tamagotchi P1](https://tamagotchi.fandom.com/wiki/Tamagotchi_(1996_Pet)) emulator. The emulation core is based on [TamaLib](https://github.com/jcrona/tamalib).
+
+This repository is based on [anabolyc/Tamagotchi](https://github.com/anabolyc/Tamagotchi), which is a fork of [GaryZ88/ArduinoGotchi](https://github.com/GaryZ88/ArduinoGotchi). The T-QT Pro work in this fork keeps the original GPLv2 license and preserves attribution to the upstream projects.
+
+## T-QT Pro port
+
+The T-QT Pro firmware lives in `firmware/esp8266-tamagotchi` and adds:
+
+- LilyGo T-QT Pro ESP32-S3 board support.
+- GC9107/GC9A01-style 128 x 128 TFT rendering through LilyGo's `TFT_eSPI` setup.
+- Two-button controls mapped to the original three Tamagotchi buttons.
+- Incremental TFT rendering to reduce flicker.
+- Display memory clearing/scrubbing for the random colored pixel artifacts seen after some power transitions.
+- WiFi monitor portal.
+- NTP time sync, including timezone capture from the browser that opens the portal.
+- Read-only web monitor with LCD view and browser-side alert sound.
+
+See [firmware/esp8266-tamagotchi/README_T_QT_PRO.md](firmware/esp8266-tamagotchi/README_T_QT_PRO.md) for build, upload, WiFi, and usage notes.
 
 ![Tamagotchi P1 Actual Devices](/images/TamaP1_devices.jpg)
 
